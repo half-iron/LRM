@@ -1,0 +1,15 @@
+[Unit]
+Description= Create reverse tunnel from BBG-messstation to remote sbb vServer. Port forwarded 22 on 2211
+After=network.target
+
+[Service]
+User=debian
+Environment="AUTOSSH_GATETIME=0"
+ExecStart=/usr/bin/autossh -M 0 -o ExitOnForwardFailure=yes  -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -N -R 2211:localhost:22  remoteSBB #  localhost:22 -> remoteSBB:2210
+
+RestartSec=5
+Restart=always
+
+
+[Install]
+WantedBy=multi-user.target

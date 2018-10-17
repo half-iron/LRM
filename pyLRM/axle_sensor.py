@@ -1,53 +1,90 @@
-
-import datetime
-import json
 import time
-
 from digi.xbee.devices import TimeoutException, IOMode
-from digi.xbee.io import IOLine
+from digi.xbee.io import IOLine,IOValue
+import struct,math
 import queue
+# ==========================================================================================
+# MSG PROTOCOL
+# ============
+#
+# Messages longer than one byte (MSG from axle_sensor) are always
+# stuffed using start ,stop and esc bytes
+from numpy.distutils.system_info import x11_info
 
-#===========
-#MSG PROTOCOL
-#============
-#ADDRESS 1st Byte
-MSG_ADDRESS_TO = 0x0F
-MSG_ADDRESS_FROM= 0xF0
-ADDRESS_DICT={0:"master",1:"ax_1"}
+from steuerung_BBG.BBG.auto_reboot_if_internet_fail import unbind_bind_usb_root
 
-#HEADERS 2nd Byte
+FRAME_START= (0x7C)
+FRAME_STOP =(0x7D)
+FRAME_ESC =(0x7E)
+#
+# MSG from axle_sensor
+# ====================
+#
+# msg_out_axle:
+# -------------
+# send only in RDY state (green led on)
+MSG_HEADER_AXLE=(1)
+MSG_HEADER_AXLE_ERROR=(2)
+# axle msg frame 6 byte length:
+# MSG_HEADER_AXLE:uint_8t,      wheel_On_counter:uint_8t,  wheel_Off_counter:uint_32t
+#
+# axle error msg frame 4 byte length:
+# MSG_HEADER_AXLE_ERROR:uint_8t,wheel_On_counter:uint_8t,   wheel_Off_counter:uint_32t
+#
+# msg_out_setup: setup response MSG
+# ---------------------------------
+# send after a msg_in
+# always 2 bytes long send only in IDLE state (green_led blinking)
+#
+#                                 first byte                          second byte
+MSG_HEADER_SETUP_OK=(3)     #  MSG_HEADER_SETUP_OK:uint_8t,     msg_in:uint_8t
+MSG_HEADER_SETUP_ERROR=(4)  #  MSG_HEADER_SETUP_ERROR:uint_8t,  msg_in in:uint_8t
+MSG_HEADER_T_ON=(5)         #  MSG_HEADER_T_ON:uint_8t,         threshold_ON :uint_8t
+MSG_HEADER_T_OFF=(6)        #  MSG_HEADER_T_EFF:uint_8t,        threshold_OFF:uint_8t
+MSG_HEADER_T_ERR=(7)        #  MSG_HEADER_T_ERR:uint_8t,        threshold_ERR:uint_8t
+MSG_HEADER_SUM_LEN=(8)      #  MSG_HEADER_SUM_LEN:uint_8t,      sum_len:uint_8t
+MSG_HEADER_ECHO=(0xf1)      # MSG_HEADER_PING:uint_8t,     msg_in:uint_8t
+#
+# MSG to axle_sensor
+# =================
+# msg_in:
+# -------
+# Always only 1 byte long. Handle only in IDLE state (green_led blinking)
+#
+# Follow always response msg_out_setup
+MSG_GET_SUM_LEN=(1) # response MSG_HEADER_T_ON
+MSG_GET_T_ON=(2)    # response MSG_HEADER_T_ON
+MSG_GET_T_OFF=(3)   # response MSG_HEADER_T_OF
+MSG_GET_T_ERR=(4)   # response MSG_HEADER_T_ERR
+#
+# Follow always a response MSG_HEADER_SETUP_OK or MSG_HEADER_SETUP_ERROR
+MSG_ECHO=(0xf0)  #
+MSG_SET_SUM_LEN=(10) #  11-20
+MSG_SET_T_ON=(20)   #   20-40
+MSG_SET_T_OFF=(40)  #   40-61
+MSG_SET_T_ERR=(60)  #   >61
 
-#DATA HEADERS (no RESPONSE)
-MSG_HEADER_START=1
-MSG_HEADER_STOP =2
-MSG_HEADER_AXLE =3
-MSG_HEADER_ERROR =18
 
-HEADER={1:'start',2:'stop',3:'axle',18:'error'}
+class AxleSensorException(Exception):
+    pass
 
-def address_from_to(from_achs,to_master):
-    return 0xff&((from_achs<<4)|to_master)
-
-# https://eli.thegreenplace.net/2009/08/12/framing-in-serial-communications/
-
-START = 0x7C  # 124 |
-STOP = 0x7D  # 125 }
-ESC = 0x7E  # 126 ~
 
 def frame_stuffing(unstuffed):
+    # https:# eli.thegreenplace.net/2009/08/12/framing-in-serial-communications/
     stuffed = bytearray()
-    stuffed.append(START)
+    stuffed.append(FRAME_START)
     # escape
     for i in unstuffed:
-        if i in [START, STOP, ESC]:
-            stuffed.append(ESC)
+        if i in [FRAME_START, FRAME_STOP, FRAME_ESC]:
+            stuffed.append(FRAME_ESC)
             stuffed.append(i)
         else:
             stuffed.append(i)
-    stuffed.append(STOP)
+    stuffed.append(FRAME_STOP)
     return stuffed
 
 def unstuff_frame_from_serial_data():
+    # https:# eli.thegreenplace.net/2009/08/12/framing-in-serial-communications/
     unstuffed_frames=[]
     _partial_frame=None
     esc=None
@@ -59,11 +96,11 @@ def unstuff_frame_from_serial_data():
                 esc = False
                 if isinstance(_partial_frame, bytearray):
                     _partial_frame.append(b)
-            elif b == ESC:
+            elif b == FRAME_ESC:
                 esc = True
-            elif b == START:
+            elif b == FRAME_START:
                 _partial_frame = bytearray()
-            elif b == STOP:
+            elif b == FRAME_STOP:
                 if isinstance(_partial_frame, bytearray):
                     unstuffed_frames.append(_partial_frame)
                 _partial_frame = None
@@ -71,314 +108,201 @@ def unstuff_frame_from_serial_data():
                 if isinstance(_partial_frame, bytearray):
                     _partial_frame.append(b)
 
+# AXLE_SENSOR_COUNTER_SAMPLE_RATE ist von der MSP432 clock abhängig. Die ISR lauft auf 1/16 of ACLK (32MHz).
+# der counter incrementiert jede 4 ISR cycles
+AXLE_SENSOR_COUNTER_SAMPLE_RATE= 2000./ 4
 def parse_msg(frame):
-    address_byte=frame[0]
-    header=HEADER.get(frame[1],'not_implemented')
-    raw_data= frame[2:]
-    d={
-        'from':ADDRESS_DICT.get((address_byte&MSG_ADDRESS_FROM)>>4,'unknow'),
-        'to': ADDRESS_DICT.get(address_byte&MSG_ADDRESS_TO,'unknow'),
-        'header':header,
-    }
-    data={}
+    header=frame[0]
+    raw_data= frame[1:]
+    d={}
     #
-    if header=='start':
-        data['passby']=int.from_bytes(raw_data[0:2],'little')
-
-    elif header == 'stop':
-        data['passby'] = int.from_bytes(raw_data[0:2],'little')
-        data['tot_axle'] = int.from_bytes(raw_data[2:4],'little')
-        data['stop_time'] = int.from_bytes(raw_data[4:8],'little')/1000
-    elif header=='axle':
-        data['passby'] = int.from_bytes(raw_data[0:2],'little')
-        data['axle'] = int.from_bytes(raw_data[2:4],'little')
-        data['axle_time'] = int.from_bytes(raw_data[4:8],'little')/1000
-    elif header=='error':
-        pass
+    if header==MSG_HEADER_AXLE:
+        on,off =struct.unpack('<BI',raw_data) #little endian unsigned Byte unsigned Int
+        d['header'] = "MSG_HEADER_AXLE"
+        d['time_wheel_on'] = on / AXLE_SENSOR_COUNTER_SAMPLE_RATE
+        d['time_wheel_off'] = off / AXLE_SENSOR_COUNTER_SAMPLE_RATE
+    elif header==MSG_HEADER_AXLE_ERROR:
+        d['header'] = "MSG_HEADER_AXLE_ERROR"
+        d['time_wheel_off'] = int.from_bytes(raw_data[0:4],'little') / AXLE_SENSOR_COUNTER_SAMPLE_RATE
+    elif header == MSG_HEADER_SETUP_OK:
+        d['header'] = "MSG_HEADER_SETUP_OK"
+        d['msg_in'] = raw_data[0]
+    elif header == MSG_HEADER_SETUP_ERROR:
+        d['header'] = "MSG_HEADER_SETUP_ERR"
+        d['msg_in'] = raw_data[0]
+    elif header == MSG_HEADER_SUM_LEN:
+        d['header'] = "MSG_HEADER_SUM_LEN"
+        d['sum_len'] = raw_data[0]
+    elif header == MSG_HEADER_T_ERR:
+        d['header'] = "MSG_HEADER_T_ERR"
+        d['thresholdERR'] = raw_data[0]
+    elif header == MSG_HEADER_T_OFF:
+        d['header'] = "MSG_HEADER_T_OFF"
+        d['thresholdOFF'] = raw_data[0]
+    elif header == MSG_HEADER_T_ON:
+        d['header'] = "MSG_HEADER_T_ON"
+        d['thresholdON'] = raw_data[0]
+    elif header == MSG_HEADER_ECHO:
+        d['header'] = "MSG_HEADER_PING"
+        d['echo'] = raw_data[0]-MSG_ECHO
     else:
-        pass
-    d.update(data)
+        raise AxleSensorException("Message header {} is unvalid.".format(header))
     return d
 
 
-
 class AxleSensor(object):
+    #Defaults
+    DEFAULT_THRESHOLD_ON = 1
+    DEFAULT_SUM_LEN= 4
+    DEFAULT_THRESHOLD_OFF=1
+    DEFAULT_THRESHOLD_ERR= 2
+    VALID_SUM_LEN=[2,4,8,16,32]
     #connected IO
     VBAT_PIN = IOLine.DIO0_AD0
-    VBAT_SCALING = 21.2/1.01# reistenze v_misurata = Vbatteria*R1/(R1+R2)
+    VBAT_SCALING = 16.63/0.718359375#230/10# reistenze v_misurata = Vbatteria*R1/(R1+R2)
     RESET_PIN = IOLine.DIO3_AD3
-    SLEEP_PIN = IOLine.DIO1_AD1
-    INIT_PIN = IOLine.DIO2_AD2
+    SHUTDOWN_CELL_PIN = IOLine.DIO1_AD1
+    IDLE_PIN_P4_0 = IOLine.DIO2_AD2
 
 
-    def __init__(self, remote_xbee):
-        self._xbee=remote_xbee
+    def __init__(self, remote_axle_sensor_xbee,logger,name="",setup_io=False):
+        self._xbee=remote_axle_sensor_xbee
         self._local_xbee=self._xbee.get_local_xbee_device()
-        #setup io
-        #battery
-        self._xbee.set_io_configuration(self.VBAT_PIN, IOMode.ADC)
-        #hard reset
-        self._xbee.set_io_configuration(self.RESET_PIN, IOMode.DIGITAL_OUT_HIGH)
-        #sleep
-        self._xbee.set_io_configuration(self.SLEEP_PIN, IOMode.DIGITAL_OUT_LOW)
-        #setup
-        self._xbee.set_io_configuration(self.INIT_PIN, IOMode.DIGITAL_OUT_LOW)
-        #self._logger=logger
-        self._rx_queque = queue.Queue()
+        self._logger=logger
+        #self._rx_queque = queue.Queue()
+        self.name=name
+        if setup_io:
+            self._xbee.set_io_configuration(self.VBAT_PIN, IOMode.ADC)
+            self._xbee.set_io_configuration(self.RESET_PIN, IOMode.DIGITAL_OUT_HIGH)
+            self._xbee.set_io_configuration(self.IDLE_PIN_P4_0, IOMode.DIGITAL_OUT_LOW)
+            self._xbee.set_io_configuration(self.SHUTDOWN_CELL_PIN, IOMode.DIGITAL_OUT_LOW)
+            self.write_changes()
+            self.logger.info("Setup IO of {}.".format(self))
 
-    def ping(self):
-        self._local_xbee.set_sync_ops_timeout(0.1)
+    def _send_rcv_status(self, msg_byte):
+        """ all axle sensor have to be set in idle!
+            send 1 byte and wait for 2 byte response
+        """
+        f_gen = unstuff_frame_from_serial_data()
+        f_gen.send(None)
+        self._local_xbee.set_sync_ops_timeout(0.5)
         try:
-            self._local_xbee.send_data(self._xbee, 'ping')
+            self._local_xbee.send_data(self._xbee, bytearray([msg_byte]))
         except TimeoutException:
-            s = 'Device {} is not alive'.format(self._xbee.get_node_id())
-            #self._logger.error(s)
-            #print(s)
-            return False
+            s = '{} is not reachable'.format(self)
+            self._logger.error(s)
+            raise AxleSensorException(s)
         else:
-            return True
+            #wait for 2 byte response
+            try:
+                xbee_msg=self._local_xbee.read_data_from(self._xbee, 0.3)
+            except TimeoutException:
+                s = '{} is not responding.'.format(self)
+                self._logger.error(s)
+                raise AxleSensorException(s)
+            else:
+                self._logger.debug("Recieved msg {}".format(xbee_msg.data))
+                frames=f_gen.send(xbee_msg.data)
+                if len(frames)>1:
+                    raise AxleSensorException("Too many response: {}".format(frames))
+                return parse_msg(frames[0])
         finally:
             self._local_xbee.set_sync_ops_timeout(1)
 
-    def put_rx_msg(self,msg):
-        self._rx_queque.put(msg,block=False)
-
-    def get_rx_msg(self,wait=False):
-        return self._rx_queque.get(wait)
 
     def __str__(self):
-        a=self.get_64bit_addr()
-        return "Axle Sensor {}.".format(a[0:4])
+        return "Axle Sensor {}, MAC:{}".format(self.name,self.get_64bit_addr())
 
     def __repr__(self):
         return self.__str__()
 
     def get_64bit_addr(self):
-        print("ping success")
         return self._xbee.get_64bit_addr()
 
     def reset(self):
-        self._xbee.set_io_configuration(self.RESET_PIN, IOMode.DIGITAL_OUT_LOW)
+        self._logger.info('Reset {}.'.format(self))
+        self._xbee.set_dio_value(self.RESET_PIN, IOValue.LOW)
         time.sleep(1)
-        self._xbee.set_io_configuration(self.RESET_PIN, IOMode.DIGITAL_OUT_HIGH)
+        self._xbee.set_dio_value(self.RESET_PIN, IOValue.HIGH)
+        self.set_idle()
 
-    def sleep(self):
-        self._xbee.set_io_configuration(self.SLEEP_PIN, IOMode.DIGITAL_OUT_LOW)
-        self._xbee.set_io_configuration(self.INIT_PIN, IOMode.DIGITAL_OUT_LOW)
+    def set_idle(self):
+        self._logger.info('Set idle {}.'.format(self))
+        self._xbee.set_dio_value(self.IDLE_PIN_P4_0, IOValue.LOW)
+        time.sleep(0.1)
+        self._xbee.set_dio_value(self.SHUTDOWN_CELL_PIN, IOValue.LOW)
 
-    def wake_up(self):
-        self._xbee.set_io_configuration(self.SLEEP_PIN, IOMode.DIGITAL_OUT_HIGH)
-        self._xbee.set_io_configuration(self.INIT_PIN, IOMode.DIGITAL_OUT_HIGH)
+    def set_rdy(self):
+        self._logger.info('Set rdy {}.'.format(self))
+        self._xbee.set_dio_value(self.IDLE_PIN_P4_0, IOValue.HIGH)
+        time.sleep(0.1)
+        self._xbee.set_dio_value(self.SHUTDOWN_CELL_PIN, IOValue.HIGH)
 
-    def get_vbat(self):
-        v = self._xbee.get_adc_value(self.VBAT_PIN)*(1.2/1024)
-        return v*self.VBAT_SCALING
+    def echo(self, i=0):
+        if i not in range(8):
+            raise ValueError("Echo value has to be  in {}.".format(range(8)))
+        return self._send_rcv_status(MSG_ECHO+i)['echo']
 
-def init_axle_sensors_network(xnet,config):
-    #expected axle sensors
-    expected_devices = [ax['address'] for ax in config.axle_sensors]
-    #assigned axle sensors
-    axle_sensors = []
+    def get_vbat(self, raw=False):
+        if raw:
+            return self._xbee.get_adc_value(self.VBAT_PIN)* (1.2 / 1024)
+        else:
+            return self._xbee.get_adc_value(self.VBAT_PIN) * (1.2 / 1024) * self.VBAT_SCALING
+
+    #msp432 settings
+    def get_threshold_ERR(self):
+        return self._send_rcv_status(MSG_GET_T_ERR)['thresholdERR']
+
+    def get_threshold_ON(self):
+        return self._send_rcv_status(MSG_GET_T_ON)['thresholdON']
+
+    def get_threshold_OFF(self):
+        return self._send_rcv_status(MSG_GET_T_OFF)['thresholdOFF']
+
+    def get_sum_len(self):
+        return self._send_rcv_status(MSG_GET_SUM_LEN)['sum_len']
+
+    def set_threshold_ERR(self, seconds=None):
+        if seconds is None:
+            seconds= self.DEFAULT_THRESHOLD_ERR
+        elif int(seconds)>5:
+            raise ValueError("seconds has to be < 5.")
+        return self._send_rcv_status(MSG_SET_T_ERR+int(seconds))['header']
+
+    def set_threshold_ON(self, count=None):
+        if count is None:
+            count= self.DEFAULT_THRESHOLD_ON
+        elif int(count)>16 or int(count)<0:
+            raise ValueError("Threshold depend on sum_len. But has to be 0<threshold<16 anyway.")
+        return self._send_rcv_status(MSG_SET_T_ON+int(count))['header']
+
+    def set_threshold_OFF(self, count=None):
+        if count is None:
+            count= self.DEFAULT_THRESHOLD_OFF
+        elif int(count)>16 or int(count)<0:
+            raise ValueError("Threshold depend on sum_len. But has to be 0<threshold<16 anyway.")
+        return self._send_rcv_status(MSG_SET_T_OFF+int(count))['header']
+
+    def set_sum_len(self, len):
+        if len is None:
+            len = self.DEFAULT_SUM_LEN
+        elif len not in self.VALID_SUM_LEN:
+            raise ValueError("seconds has to be  in {}".format(str(self.VALID_SUM_LEN)))
+        return self._send_rcv_status(MSG_SET_SUM_LEN + int(math.log2(len)))['header']
+
+
+def init_axle_sensors_network(found_xbee, expected_axle_sensors,logger):
+    xbee_addr = [d.get_64bit_addr() for d in found_xbee]
     ##
-    unexpected_devices=[]
-    for device in xnet.get_devices():
-        if device.get_64bit_addr() in expected_devices:
-            #remove devices
-            expected_devices.pop(expected_devices.index(device.get_64bit_addr()))
-            axle_sensors.append(AxleSensor(device))
-            print('discovered', device)
-        elif device.get_64bit_addr() ==config.xbee_coordinator['address']:
-            pass
-        else:
-            unexpected_devices.append(device)
-    if len(unexpected_devices):
-        print('Unexpected devices: ', unexpected_devices)
-    #raise error if missing devices
-    if len(expected_devices):
-        raise(IOError)
-    else:
-        return axle_sensors
-
-##dovrà essefre esteso per piu sensori. il file deve rimanere univoco per ogni registrazione. Se ci sono più binari
-# e quindi piu passby contempornei possibili ci sara un passby principale(binario) e altri secondari
-class TrainPassby(object):
-    DICT_KEYS=set(["ax1_time","stop_rec","start_rec","rec_n","ax1_passby", "trigger"])
-    def __init__(self,rec_n,stop_delay=15, max_duration=90):
-        self.ax_start_time=None
-        self.ax_stop_time=None
-        #
-        self.stop_delay=datetime.timedelta(seconds=stop_delay)
-        self.max_duration=datetime.timedelta(seconds=max_duration)
-        self.timed_out = False
-        #
-        self.errors=[]
-        self._d = {"rec_n":rec_n,'ax1_time':[]}
-        #self.rec_state=False
-
-    @property
-    def is_complete(self):
-        return set(self._d.keys())==TrainPassby.DICT_KEYS
-
-    @property
-    def start_rec(self):
-        if self.ax_start_time is not None:
-            return True
-        else:
-            return False
-
-    @property
-    def stop_rec(self):
-        if self.ax_stop_time is not None:
-            if (self.ax_stop_time+self.stop_delay)<=self.now():
-                return True
-
-        elif self.ax_start_time is not None:
-            if (self.ax_start_time+self.max_duration)<=self.now():
-                #timed out
-                if not self.timed_out:
-                    self.timed_out=True
-                    self.add_error("timed_out")
-                return True
-        else:
-            return False
-
-    @property
-    def _name(self):
-        name= "{rec_n}_{start_rec:%Y_%m_%d_%Hh%Mm}".format(**self._d)
-        err = len(self.errors)
-        return name +"_"+ str(err)
-
-    def add_axle_data(self,header, timestamp,passby=None,axle=None,axle_time=None,**kwargs):
-        #if passby != self._d['ax1_passby']:
-        #    raise Exception("passby number changed")
-
-        if header=="error":
-            self.errors.append(('ax1_error',timestamp))
-
-        elif header=="stop":
-            self.ax_stop_time=timestamp
-            self.stop=True
-
-        elif header=="start":
-            self.ax_start_time=timestamp
-            self._d['ax1_passby']= passby
-            self._d['ax1_time'].append((axle,axle_time,timestamp))
-
-            self._d['trigger'] = "ax1"
-        elif header =="axle":
-            self._d['ax1_time'].append((axle,axle_time,timestamp))
-
-    def add_error(self,err="timeout"):
-        self.errors.append((err,self.now()))
-
-    def add_weather_info(self):
-        self._d['weather']={}
-
-    def set_rec_stop_time(self):
-        if self.stop_rec:
-            self._d['stop_rec']= self.now()
-        else:
-            raise Exception("")
-
-    def set_rec_start_time(self):
-        self._d['start_rec']= self.now()
-
-    def set_xl2_BBG_sync_time(self, xl2time):
-        self._d['sync_time']= {"xl2":xl2time,"BBG":self.now()}
-
-
-    def now(self):
-        return datetime.datetime.now()
-
-    def export(self,path,force= False):
-        filePath = path.joinpath(self._name+".json")
-        self._d['errors']=self.errors
-        self._d['name'] = self._name
-        with filePath.open('w') as f:
-            json.dump(self._d, f,indent=2,sort_keys=True,default=str)
-
-
-
-if __name__=="__main__":
-
-
-    if 1:
-        import importlib
-        import serial
+    axle_sensors=[]
+    for name,addr in expected_axle_sensors.items():
         try:
-            config = importlib.import_module('config')
-            device = config.serial_port_by_vid_pid(*config.serial_adapter_id)
-            s= serial.Serial(device, baudrate=config.axle_sensors[0]['baudrate'])
-            print(s.get_settings())
-            msg = frame_stuffing(bytearray([address_from_to(1,0),MSG_HEADER_START,1,2,3,4,5,6,7,8]))
-            print(msg)
-            print(s.write(msg))
-            s.flushOutput()
-        except Exception as e:
-            raise(e)
-        finally:
-            s.close()
+            index = xbee_addr.index(addr)
+        except ValueError:
+            logger.warning('Axle Sensor {}, MAC: {} is missing.'.format(name,str(addr)))
+        else:
+            ax=AxleSensor(remote_axle_sensor_xbee=found_xbee[index],name=name,logger=logger)
+            axle_sensors.append(ax)
+            logger.info('{} found.'.format(ax))
+    return axle_sensors
 
-    else:
-        import pathlib
-
-
-        # from other.example_axle_data import ax_example
-        PATH0 = pathlib.Path('test')
-        passbyPath = PATH0
-
-        g_msg_Q = queue.Queue()
-        TIME = []
-
-        for msg in ax_example[0]:
-            g_msg_Q.put(msg)
-            TIME.append(msg['timestamp'])
-
-        print('t0', min(TIME))
-        DT = datetime.datetime.now() - min(TIME)
-
-
-        def now():
-            t = datetime.datetime.now() - DT - datetime.timedelta(0, 1, 0, 0, 0, 0, 0)
-            return t
-
-
-        class TrainPassby2(TrainPassby):
-            def now(self):
-                return now()
-
-
-        npassby = 0
-        passby = TrainPassby2(npassby)
-        REC = False
-        Mess = 1
-        print("for loop")
-        while Mess:
-
-            time.sleep(0.001)
-            if passby.start_rec:
-                if not REC:
-                    REC = True
-                    print("start")
-                    passby.set_rec_start_time()
-                    # if measurement has started
-                if passby.stop_rec:
-                    if REC:
-                        REC = False
-                        print("Stop measurement")
-                        passby.set_rec_stop_time()
-                        passby.export(passbyPath)
-                        # reset passby
-                        npassby += 1
-                        passby = TrainPassby2(npassby)
-                        Mess = 0
-
-            if not g_msg_Q.empty():
-                msg = g_msg_Q.get()
-                timestamp = msg['timestamp']
-
-                while now() <= timestamp:
-                    time.sleep(0.002)
-                    pass
-                print("{}:{}".format(now(), msg))
-                passby.add_axle_data(**msg)

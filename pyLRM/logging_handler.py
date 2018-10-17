@@ -1,13 +1,40 @@
 from logging.handlers import SMTPHandler
 import logging
-import importlib
 import smtplib
 from email.utils import formatdate
 import sys
+import pathlib
+import pyLRM.config as config
 
-config = importlib.import_module('config')
-formatter = logging.Formatter('%(asctime)s | %(name)s |  %(levelname)s: %(message)s')
 
+FORMATTER = logging.Formatter('%(asctime)s | %(name)s |  %(levelname)s: %(message)s')
+
+def init_logger(name="", level = "INFO", filepath=pathlib.Path(), systdout=True, file=True, mail=False):
+
+    LRMsysLogger= logging.getLogger("LRMsys{}".format(name))
+    LRMsysLogger.setLevel(level)
+
+    if file:
+        # add file handler
+        messystemFilePath = filepath.joinpath("LRMsys{}.log".format(name))
+        messystemFileLoggerHandler = logging.FileHandler(messystemFilePath.as_posix())
+        messystemFileLoggerHandler.setFormatter(FORMATTER)
+        # add file handler
+        LRMsysLogger.addHandler(messystemFileLoggerHandler)
+
+    if systdout:
+        #standardout handler
+        stdoutLoggerHandler = logging.StreamHandler(sys.stdout)
+        LRMsysLogger.addHandler(stdoutLoggerHandler)
+
+    if mail:
+        # add mail handler
+        mailLoggerHandler = myMailHandler(**config.mail_handler)
+        # mail_handler.setFormatter(formatter)
+        mailLoggerHandler.setLevel(logging.CRITICAL)
+        LRMsysLogger.addHandler(mailLoggerHandler)
+
+    return LRMsysLogger
 
 
 #mail handler
@@ -34,39 +61,3 @@ class myMailHandler(SMTPHandler):
             raise
         except:
             self.handleError(record)
-
-
-
-def init_logger(name,filepath):
-    logger = logging.getLogger(name)
-    logger.setLevel('DEBUG')
-    loggerPath = filepath.joinpath('messsystem.log')
-    loggerHandler = logging.FileHandler(loggerPath.as_posix())
-    loggerHandler.setFormatter(formatter)
-    # add filehandler
-    logger.addHandler(loggerHandler)
-    # add standardout handler
-    loggerHandler2 = logging.StreamHandler(sys.stdout)
-    logger.addHandler(loggerHandler2)
-    # add mail handler
-    mail_handler = myMailHandler(**config.mail_handler)
-    # mail_handler.setFormatter(formatter)
-    mail_handler.setLevel(logging.CRITICAL)
-    logger.addHandler(mail_handler)
-
-    # AxleSensor data logger
-    DataLogger = logging.getLogger("axle_data")
-    DataLogger.setLevel('INFO')
-    DataLogPath = filepath.joinpath('axle_data.log')
-    DataLogHandler = logging.FileHandler(DataLogPath.as_posix())
-    DataLogger.addHandler(DataLogHandler)
-
-    return logger,DataLogger
-
-if __name__=="__main__":
-    import pathlib
-    # test spedire una mail
-    path = pathlib.Path().joinpath('test')
-    logger,_=init_logger('aa',path)
-    logger.info('Setup completato')
-    logger.critical("ERRORE CRITICO")

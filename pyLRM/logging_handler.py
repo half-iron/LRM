@@ -11,12 +11,12 @@ FORMATTER = logging.Formatter('%(asctime)s | %(name)s |  %(levelname)s: %(messag
 
 def init_logger(name="", level = "INFO", filepath=pathlib.Path(), systdout=True, file=True, mail=False):
 
-    LRMsysLogger= logging.getLogger("LRMsys{}".format(name))
+    LRMsysLogger= logging.getLogger("LRM_{}".format(name))
     LRMsysLogger.setLevel(level)
 
     if file:
         # add file handler
-        messystemFilePath = filepath.joinpath("LRMsys{}.log".format(name))
+        messystemFilePath = filepath.joinpath("LRM_{}.log".format(name))
         messystemFileLoggerHandler = logging.FileHandler(messystemFilePath.as_posix())
         messystemFileLoggerHandler.setFormatter(FORMATTER)
         # add file handler
@@ -25,7 +25,9 @@ def init_logger(name="", level = "INFO", filepath=pathlib.Path(), systdout=True,
     if systdout:
         #standardout handler
         stdoutLoggerHandler = logging.StreamHandler(sys.stdout)
+        stdoutLoggerHandler.setFormatter(FORMATTER)
         LRMsysLogger.addHandler(stdoutLoggerHandler)
+
 
     if mail:
         # add mail handler

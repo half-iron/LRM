@@ -2,17 +2,12 @@ import time
 from digi.xbee.devices import TimeoutException, IOMode
 from digi.xbee.io import IOLine,IOValue
 import struct,math
-import queue
 # ==========================================================================================
 # MSG PROTOCOL
 # ============
 #
 # Messages longer than one byte (MSG from axle_sensor) are always
 # stuffed using start ,stop and esc bytes
-from numpy.distutils.system_info import x11_info
-
-from steuerung_BBG.BBG.auto_reboot_if_internet_fail import unbind_bind_usb_root
-
 FRAME_START= (0x7C)
 FRAME_STOP =(0x7D)
 FRAME_ESC =(0x7E)
@@ -168,7 +163,7 @@ class AxleSensor(object):
     def __init__(self, remote_axle_sensor_xbee,logger,name="",setup_io=False):
         self._xbee=remote_axle_sensor_xbee
         self._local_xbee=self._xbee.get_local_xbee_device()
-        self._logger=logger
+        self._logger=logger.getChild(self.__class__.__name__)
         #self._rx_queque = queue.Queue()
         self.name=name
         if setup_io:

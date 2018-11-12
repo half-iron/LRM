@@ -1,0 +1,34 @@
+### Datumdes Gerätes
+System:DATE?
+
+## Uhrzeitdes Gerätes
+System:Time?
+
+## ohne info
+System:Options?
+
+System:error?
+
+SYSTEM:PID?
+
+RASD?
+
+
+##
+
+DISC:DIR:READ0, 100, \" HauptverzeichnisAuflistungauf SD Karte"
+
+##
+DISC:DIR:READ0, 100, \RESTORE_AFTER_POWERFAIL\"z.b Auflistungvom backupfolder files"
+
+## Datei Löschen
+DISC:FILE:REMOVE\RESTORE_AFTER_POWERFAIL\2016-04-04_SLM_000.XL2R"
+
+## Prozedurfür Downlaod von datei
+""
+DISC:FILE:OPEN:READ\RESTORE_AFTER_POWERFAIL\2016-03-31_SLM_000_RTA_3rd_Log.txt, öffnet die Datei
+
+DISC:FILE:READ0, 590,\RESTORE_AFTER_POWERFAIL\2016-03-31_SLM_000_RTA_3rd_Log.txt,liest die datei aus-> übertragungvia serial
+
+DISC:FILE:CLOSE,
+schließtdie datei wiederGibt bestimmtnoch mehr, habe aber jetzt nur ein paar herausgeschrieben.Leiderdauertdie SeriellenÜbertragungder Datenziemlichlange,(ca 200kb/s).So eine Tagesmessungmit ca50mb dauertdenn schonmal 5min.

@@ -1,0 +1,7 @@
+#######################################
+#    XL2SLM device rules              #
+#######################################
+#mass storage
+ACTION == "add", KERNEL=="sd[a-z]?", ATTRS{idVendor}=="1a2b",ATTRS{idProduct}=="0003", GROUP="users", OWNER="debian", SYMLINK+="XL2storage"
+#serial
+ACTION == "add", KERNEL=="ttyA*", ATTRS{idVendor}=="1a2b",ATTRS{idProduct}=="0004", SYMLINK+="XL2serial"

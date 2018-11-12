@@ -1,7 +1,8 @@
 import time
 from digi.xbee.devices import TimeoutException, IOMode
 from digi.xbee.io import IOLine,IOValue
-import struct,math
+import struct
+import math
 # ==========================================================================================
 # MSG PROTOCOL
 # ============
@@ -118,6 +119,7 @@ def parse_msg(frame):
         d['time_wheel_off'] = off / AXLE_SENSOR_COUNTER_SAMPLE_RATE
     elif header==MSG_HEADER_AXLE_ERROR:
         d['header'] = "MSG_HEADER_AXLE_ERROR"
+        d['time_wheel_on'] = None
         d['time_wheel_off'] = int.from_bytes(raw_data[0:4],'little') / AXLE_SENSOR_COUNTER_SAMPLE_RATE
     elif header == MSG_HEADER_SETUP_OK:
         d['header'] = "MSG_HEADER_SETUP_OK"
@@ -160,7 +162,7 @@ class AxleSensor(object):
     IDLE_PIN_P4_0 = IOLine.DIO2_AD2
 
 
-    def __init__(self, remote_axle_sensor_xbee,logger,name="",setup_io=False):
+    def __init__(self, remote_axle_sensor_xbee, logger, name="",setup_io=False):
         self._xbee=remote_axle_sensor_xbee
         self._local_xbee=self._xbee.get_local_xbee_device()
         self._logger=logger.getChild(self.__class__.__name__)
@@ -299,5 +301,58 @@ def init_axle_sensors_network(found_xbee, expected_axle_sensors,logger):
             ax=AxleSensor(remote_axle_sensor_xbee=found_xbee[index],name=name,logger=logger)
             axle_sensors.append(ax)
             logger.info('{} found.'.format(ax))
+
     return axle_sensors
+
+
+def setup_axle_sensors(axle_sensors, logger, sum_len=None,thresholdOFF=None,thresholdON=None,thresholdERR=None):
+    logger.info("===Reset Axle Sensors (put in idle state and reset mcu)")
+    for ax in axle_sensors:
+        ax.reset()
+    if sum_len is not None:
+        logger.info("===Set sum len")
+        for ax in axle_sensors:
+            h = ax.set_sum_len(sum_len)
+            logger.info("{}, set sum_len to {}, return {}.".format(ax, sum_len, h))
+            sum_len = ax.get_sum_len()
+            logger.info("{}, read sum_len as control. sum_len {}.".format(ax, sum_len))
+            assert sum_len == sum_len
+    #
+    if thresholdOFF is not None:
+        logger.info("===Set thresholdOFF")
+        for ax in axle_sensors:
+            h = ax.set_threshold_OFF(thresholdOFF)
+            logger.info("{}, set thresholdOFF to {}, return {}.".format(ax, thresholdOFF, h))
+            t = ax.get_threshold_OFF()
+            logger.info("{}, read thresholdOFF as control. thresholdOFF {}.".format(ax, t))
+            assert t == thresholdOFF
+    #
+    if thresholdON is not None:
+        logger.info("===Set thresholdON")
+        for ax in axle_sensors:
+            h = ax.set_threshold_ON(thresholdON)
+            logger.info("{}, set thresholdON to {}, return {}.".format(ax, thresholdON, h))
+            t = ax.get_threshold_ON()
+            logger.info("{}, read thresholdON as control. thresholdON {}.".format(ax, t))
+            assert t == thresholdON
+
+    if thresholdERR is not None:
+        logger.info("===Set thresholdERR")
+        for ax in axle_sensors:
+            h = ax.set_threshold_ERR(thresholdERR)
+            logger.info("{}, set thresholdERR to {}, return {}.".format(ax, thresholdERR, h))
+            t = ax.get_threshold_ERR()
+            logger.info("{}, read thresholdERR as control. thresholdERR {}.".format(ax, t))
+            assert t == thresholdERR
+
+    logger.info("===Log VBAT")
+    for ax in axle_sensors:
+        v = ax.get_vbat()
+        vr = ax.get_vbat(raw=True)
+        logger.info("{}, vbat {},  vbat raw {}.".format(ax, v, vr))
+
+    logger.info("=================================")
+    logger.info("=== Put Axle Sensor in rdy state.")
+    for ax in axle_sensors:
+        ax.set_rdy()
 

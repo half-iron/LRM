@@ -1,23 +1,21 @@
 from digi.xbee.devices import XBeeDevice
 import time
+import pathlib
 from pyLRM.axle_sensor import parse_msg, unstuff_frame_from_serial_data, init_axle_sensors_network,setup_axle_sensors
 from datetime import datetime
 import pyLRM.config as config
 from pyLRM.config import xbee_axle_sensors_name_from_addr
 from pyLRM.passby import TrainPassby
-from pyLRM.logging_handler import init_logger, ax_sensor_log_gen
-import argparse,functools
+from pyLRM.logging_handler import init_logger, ax_sensor_log_gen,init_mail_logger
+import argparse
 from queue import Queue
 from ntixl2 import XL2SLM_serial
-
-
 from ntixl2.message import INITIATE
 
-import pathlib
+
 
 def main(logger,profile,stop_delay,passbypath, axsettings,stop_time):
 
-    logger.info("Run messung.py.")
     logger.info("========================")
     logger.info("===Init XL2.")
 
@@ -77,7 +75,7 @@ def main(logger,profile,stop_delay,passbypath, axsettings,stop_time):
                     logger.critical(e)
 
         npassby = 0
-        clear = False
+        clear_log_counter = False
         passby = TrainPassby(axle_sensors_names=list(config.xbee_axle_sensors_names),
                              stop_delay=stop_delay, ax_counter_low_err=4)
         logger.info("Add callback.")
@@ -90,32 +88,32 @@ def main(logger,profile,stop_delay,passbypath, axsettings,stop_time):
             if not g_msg_Q.empty():
                 msg, from_address, timestamp= g_msg_Q.get()
                 ax_name = xbee_axle_sensors_name_from_addr(from_address)
-                ax_log_gen.send([msg, from_address, timestamp, clear])
-                if clear:
-                    clear =False
+                ax_log_gen.send([msg, from_address, timestamp, clear_log_counter])
+                if clear_log_counter:
+                    clear_log_counter =False
                 passby.add_axle_data(**{**msg,'ax_name':ax_name,'timestamp':timestamp})
             ##start stop rec
             if passby.rec():
                 if not REC:
                     REC=True
-                    passby.set_rec_start_time()
-                    logger.info("Start rec {}.".format(passby._name))
                     try:
                         xl2.serial_message(INITIATE.START())
                     except Exception as e:
                         logger.error("Error start.{}.".format(str(e)))
                         raise e
-
-                    passby.set_rec_start_time()
+                    else:
+                        passby.set_rec_start_time()
+                        logger.info("Start rec {}.".format(passby._name))
             else:
                 if REC:
                     REC=False
-                    passby.set_rec_stop_time()
                     try:
                         xl2.serial_message(INITIATE.STOP())
                     except Exception as e:
                         logger.error("Error  stop.{}.".format(str(e)))
                         raise e
+                    else:
+                        passby.set_rec_stop_time()
 
                     time.sleep(2)
                     try:
@@ -138,48 +136,42 @@ def main(logger,profile,stop_delay,passbypath, axsettings,stop_time):
                     npassby += 1
                     passby = TrainPassby(axle_sensors_names=list(config.xbee_axle_sensors_names),
                                          stop_delay=15, ax_counter_low_err=4)
-                    clear=True
+                    clear_log_counter=True
                 elif passby.is_error:
                     passby.export(path=passbypath)
-                    logger.error("Error passby {}. No REC.Reset.".format(passby._name))                    # new passby
+                    logger.error("Error passby {}. No REC. Reset.".format(passby._name))
                     npassby += 1
                     passby = TrainPassby( axle_sensors_names=list(config.xbee_axle_sensors_names),
                                          stop_delay=stop_delay, ax_counter_low_err=4)
-                    clear = True
+                    clear_log_counter = True
 
                 elif datetime.now()>stop_time:
-                    logger.warning("Exit measuremet . Reached stop time.")                    # new passby
+                    logger.warning("Exit measuremet . Reached stop time.")
                     break
 
     except KeyboardInterrupt as e:
         logger.warning('===Exit by KeyboardInterrupt')
-        raise e
+
     except Exception as e:
-        logger.error('===Exit test_axle_sensors.py wegen Exception.\n{}.'.format(str(e)))
+        logger.error('===Exit {} wegen Exception.\n{}.'.format(pathlib.Path(__file__).name, str(e)))
         raise e
     finally:
+        logger.info('Put axle_sensors in idle state.')
         for ax in axle_sensors:
-            try:
-                ax.set_idle()
-            except:
-                logger.error('set_idle {} failed.'.format(ax))
+            ax.set_idle()
         # close serial connections
-        logger.info('Close coord_xbee serial connection.')
-        try:
-            coord_xbee.close()
-        except:
-            logger.error('Close coord_xbee failed.')
-
+        logger.info('Close xbee serial connection.')
+        coord_xbee.close()
         try:
             if REC:
-                logger.info('Stop_measurement')
+                logger.error('Stop_measurement')
                 xl2.serial_message(INITIATE.STOP())
                 passby.export(passbypath, force=True)
             xl2.reset()
-        except:
+        finally:
+            logger.info('Close xl2 serial connection.')
             xl2.close()
 
-        logger.info('Exit messung.py.')
 
 
 
@@ -206,28 +198,28 @@ if __name__=="__main__":
     path = pathlib.Path(args.name).absolute()
     path.mkdir(exist_ok=True)
 
-    logger = init_logger("messung",
+
+    logger = init_logger(pathlib.Path(__file__).name.split(".py")[0],
                          filepath=path,
-                         level=("DEBUG" if args.log_debug else "INFO"),
-                         mail=False)
+                         level=("DEBUG" if args.log_debug else "INFO"))
 
-    maillogger = init_logger("mail_messung",mail=True)
+    maillogger = init_mail_logger("mail")
 
-    i=0
-    logger.info("=================")
-    maillogger.critical("Start messung.")
+
+    logger.info("==============")
+    maillogger.info("Start {}.".format(args.name))
+    i = 0
     while i<10:
         try:
-            main(logger,profile=config.PROFILE,stop_delay=args.stop_delay, passbypath=path,
+            r = main(logger,profile=config.PROFILE,stop_delay=args.stop_delay, passbypath=path,
                  axsettings=args.ax_sensor_settings,stop_time=config.STOP)
-        except KeyboardInterrupt:
-            break
 
         except Exception as e:
             i+=1
-            maillogger.critical("{:d} Iteration.Messung error".format(i))
+            logger.exception("Iteration {}.".format(i))
+            maillogger.error("Iteration {:d}".format(i), exc_info=True)
             time.sleep(10)
         else:
-            maillogger.critical("Stop messung.")
+            maillogger.critical("Stop {}.".format(args.name))
             break
-    logger.info("=================")
+    logger.info("================")

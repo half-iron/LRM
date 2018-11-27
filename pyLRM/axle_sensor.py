@@ -39,7 +39,7 @@ MSG_HEADER_T_ON=(5)         #  MSG_HEADER_T_ON:uint_8t,         threshold_ON :ui
 MSG_HEADER_T_OFF=(6)        #  MSG_HEADER_T_EFF:uint_8t,        threshold_OFF:uint_8t
 MSG_HEADER_T_ERR=(7)        #  MSG_HEADER_T_ERR:uint_8t,        threshold_ERR:uint_8t
 MSG_HEADER_SUM_LEN=(8)      #  MSG_HEADER_SUM_LEN:uint_8t,      sum_len:uint_8t
-MSG_HEADER_ECHO=(0xf1)      # MSG_HEADER_PING:uint_8t,     msg_in:uint_8t
+MSG_HEADER_ECHO=(0xf1)      #  MSG_HEADER_PING:uint_8t,         msg_in:uint_8t
 #
 # MSG to axle_sensor
 # =================

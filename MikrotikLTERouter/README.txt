@@ -9,4 +9,5 @@ Als alternative man kann die KonfigurationsWeb interface werwenden.
 
 3. Router reset: reset knopf 5 sec gedrückt halten wärend boot bis LED flashen, dann loslassen.
 
+4. Passwörter auf secret file
 

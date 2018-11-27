@@ -1,72 +1,102 @@
 
-Remote zugriff auf Messtation
+Remote Zugriff auf LRM
 =============================
-28.9.2018
+22.10.2018
 ---------
 
 Den BBG stellt ein ssh tunnl zu einen server (benannt: remote server) mit öffentliches ip her und leitet dort seine eigen ssh port (22) auf einer zu definierende port (zb: 2210) weiter. 
 
 Dann kann man vom remote server auf den BBG via ssh zugegriffen werden mit:
 
-```
-ssh debian@localhost -p 2210
+```bash
+ssh debian@localhost -p 2211
 ```
 
 # SSH tunnel einrichten
 
-Folgende Schritte werden auf den BBG durchgeführt um den tünnel herzustellen.
+Folgende Schritte werden auf den BBG durchgeführt um den Tünnel herzustellen.
 
 ## ssh tunnel von BBG zu remotes server testen
 
-parameter:
-ip, user and pw  der remote server sind Geheim
 
-```
-ssh user@ip
+
+**Parameter:** **ip**, **user** and **pw**  der remote server sind Geheim und deswegen zu ändern.
+
+```bash
+ssh user@ip # ip, user zu ändern
 ```
 
 ## ssh-key generieren
-```
-ssh-keygen -f ~/.ssh/BBG-messstation -t rsa
+```bash
+ssh-keygen -f ~/.ssh/LRM_BBG -t rsa
 ```
 
 ## ssh-key copieren
-```
-ssh-copy-id -i .ssh/BBG-messstation.pub user@ip
+```bash
+ssh-copy-id -i .ssh/LRM_BBG.pub user@ip
 ```
 
 ## ssh Profil für remote server (remoteSBB) erstellen
 
-folgende zeilen zur file `~.ssh/config` hinzufügen
-
+Folgende Zeilen zur File `~.ssh/config` hinzufügen.
+```bash
 Host remoteSBB
 	HostName ip # ip zu ändern
-	User user  # user zu ändern
+	User user  
 	Port 22
 	PubkeyAuthentication Yes
-	IdentityFile ~/.ssh/BBG-messstation
+	IdentityFile ~/.ssh/LRM_BBG
 	ServerAliveInterval 10
-
-profil testen mit:
-
+	
 ```
+Weitere ports können, falls nötig, auf remoteSBB weiterleitet werden mit Hinzufügen von: 
+```
+Host remoteSBB
+        ...
+	RemoteForward remotePort localhost:localPort
+```
+
+Profil testen mit:
+```bash
 ssh remoteSBB
 ```
 
-## automatiesiert tunnel herstellen
+## Automatiesiert tunnel herstellen
 
-file ssh-tunnel.service file in  `/etc/systemd/system/ssh-tunnel.service` copieren und dann service starten mit:
+Installiere autossh. `sudo apt install autossh`
 
-```
+File *ssh-tunnel.service* file in  `/etc/systemd/system/ssh-tunnel.service` kopieren und dann Service starten mit:
+
+```bash
 sudo systemctl enable ssh-tunnel.service
 sudo systemctl restart ssh-tunnel.service
 ```
-##Check to see if it started:
+
+Kontrollieren fals service  korrekt gestartet
+```bash
 sudo systemctl status -l ssh-tunnel.service
+```
 
 falls alles in ordnung ist den tunnel hergestellt.
 
+## Create a SOCKS proxy with SSH
 
+Den gesamte browsing über LRM umzuleiten. Z.B um Router zu konfigurieren.
+
+Die client ssh Verbindung  an LRM mit option `-D` durchführen:
+
+```bash
+
+ssh -D 1080 LRM
+```
+
+Oder im `.ssh/config` file option:
+```
+	DynamicForward 1080
+```
+Web browser muss  auf SOCK proxy mit port 1080 konfiguriert werden.
+
+Mehreer details auf diesem [Link](https://ma.ttias.be/socks-proxy-linux-ssh-bypass-content-filters/).
 
 
 

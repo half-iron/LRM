@@ -10,10 +10,9 @@ import parse,datetime
 FORMATTER = logging.Formatter('%(asctime)s | %(name)s |  %(levelname)s: %(message)s')
 FORMATTER2 = logging.Formatter('%(name)s |  %(levelname)s: %(message)s')
 
-def init_logger(name="", level = "INFO", filepath=pathlib.Path(), systdout=True, file=True, mail=False):
-
-    LRMsysLogger= logging.getLogger("LRM_{}".format(name))
-    LRMsysLogger.setLevel(level)
+def init_logger(name="", level = "INFO", filepath=pathlib.Path(), systdout=True, file=True):
+    logger = logging.getLogger("LRM_{}".format(name))
+    logger.setLevel(level)
 
     if file:
         # add file handler
@@ -21,23 +20,22 @@ def init_logger(name="", level = "INFO", filepath=pathlib.Path(), systdout=True,
         messystemFileLoggerHandler = logging.FileHandler(messystemFilePath.as_posix())
         messystemFileLoggerHandler.setFormatter(FORMATTER2)
         # add file handler
-        LRMsysLogger.addHandler(messystemFileLoggerHandler)
+        logger.addHandler(messystemFileLoggerHandler)
 
     if systdout:
         #standardout handler
         stdoutLoggerHandler = logging.StreamHandler(sys.stdout)
         stdoutLoggerHandler.setFormatter(FORMATTER2)
-        LRMsysLogger.addHandler(stdoutLoggerHandler)
+        logger.addHandler(stdoutLoggerHandler)
+    return logger
 
-
-    if mail:
-        # add mail handler
-        mailLoggerHandler = myMailHandler(**config.mail_handler)
-        mailLoggerHandler.setFormatter(FORMATTER)
-        mailLoggerHandler.setLevel(logging.CRITICAL)
-        LRMsysLogger.addHandler(mailLoggerHandler)
-
-    return LRMsysLogger
+def init_mail_logger(name=""):
+    logger = logging.getLogger("LRM_{}_mail".format(name))
+    mailLoggerHandler = myMailHandler(**config.mail_handler)
+    mailLoggerHandler.setFormatter(FORMATTER)
+    mailLoggerHandler.setLevel(logging.INFO)
+    logger.addHandler(mailLoggerHandler)
+    return logger
 
 
 #mail handler

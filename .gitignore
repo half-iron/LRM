@@ -1,7 +1,10 @@
 ###Ordner###
-NTiXL2/
+test/
+*_build/
 *vario*
 .idea*
+*.log
+*.secret.yaml
 ###files###
 
 *.xoj

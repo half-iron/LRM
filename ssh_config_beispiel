@@ -1,0 +1,31 @@
+Host remoteSBB
+	HostName 185.16.174.145
+	User sbb
+	Port 22
+	PubkeyAuthentication Yes
+	IdentityFile ~/.ssh/id_rsa_esr
+	ServerAliveInterval 10
+	#BBG
+	LocalForward 2211 localhost:2211
+	LocalForward 6001 localhost:6001
+
+Host LRM*
+	User debian
+	IdentityFile ~/.ssh/id_rsa_esr
+
+Host LRMonLAN
+	HostName 192.168.5.5
+
+#dopo avere effettuato il tunnel con remotesbb
+
+Host LRMfwonLocalhost*
+        HostName localhost
+        Port 2211
+
+Host LRMfwonLocalhostProxy
+	DynamicForward 1080
+
+Host PocketBeagle
+	HostName 192.168.7.2
+	User debian
+	IdentityFile ~/.ssh/id_rsa_es

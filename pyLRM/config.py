@@ -1,5 +1,9 @@
 from  digi.xbee.devices import XBee64BitAddress
 import datetime
+import yaml
+import pathlib
+
+secret = yaml.load(pathlib.Path().absolute().joinpath('accounts.secret.yaml').open("r+"))
 
 XL2={'port':None,
      'serial_usb_id':(0x1a2b, 0x0004),
@@ -24,27 +28,22 @@ STOP_DELAY = 10
 PROFILE = 6
 STOP = datetime.datetime.strptime("30/11/18 01:30", "%d/%m/%y %H:%M")
 
+#account settings for logger mail handler
+mail_handler = {"mailhost":('smtp.gmail.com', 465),
+                       "fromaddr":secret['LRM_mail_account']['mail'],
+                       "toaddrs":"enzo.scossa.romano@gmail.com",
+                       "subject":"Luzern Messung",
+                       "credentials":("rblraspberry@gmail.com",secret['LRM_mail_account']['pw'])
+                       }
+
+############################
+############################
+############################
 _xbee_axle_sensors_inv = { str(addr):name for name,addr in xbee_axle_sensors.items()}
 xbee_axle_sensors_names ={name for name in xbee_axle_sensors.keys()}
 
 def xbee_axle_sensors_name_from_addr(xbeeaddr):
     return _xbee_axle_sensors_inv.get(str(xbeeaddr),None)
-
-
-
-###############
-#account settings for logger mail handler
-mail_handler = {"mailhost":('smtp.gmail.com', 465),
-                       "fromaddr":"rblraspberry@gmail.com",
-                       "toaddrs":"enzo.scossa.romano@gmail.com",
-                       "subject":"Luzern Messung",
-                       "credentials":("rblraspberry@gmail.com","LRMessanlage")
-                       }
-
-
-
-
-
 
 
 

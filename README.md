@@ -12,8 +12,6 @@ Die scripts dienen zur Bedienung der Messanlage. Die Scripts implementieren eine
 funktionen. Den Befehl `python3 scriptname.py -h` gibt Hinweise über die funktionalität und
  Anwendug der Scripts. 
  
- 
-
 Ein übersicht der implementierten funktionalitäten sind: 
 - **xl2_device.py**: 
     - XL2 cycle power (strom aus und wieder ein)
@@ -29,7 +27,8 @@ Ein übersicht der implementierten funktionalitäten sind:
     
 - **test_axle_sensors.py** um axle sensor zu testen. ähnlich zur `messung.py` aber ohne XL2.
 
-   
+
+
 ## Durchführung einer Messung
 ### Vorbereitungen
 
@@ -37,6 +36,8 @@ Ein übersicht der implementierten funktionalitäten sind:
 
 2. `pyLRM/passby.py` file modifizieren. Diesem File enthält die logik um die passby zu generieren. In zukunft diese änderung 
 sollten in `pyLRM/config.py` durchgeführt werden durch subclassen von `passby.Passby` und neuschreiben der methode `run`
+
+3. `pyLRM`, `NTiXL2`, Scripts und secret file auf BBG hochladen. 
 
 ### Messen
 
@@ -47,7 +48,7 @@ den `xl2_device.py` script. z.B. mit:
     ```
 2. Starte die Messung mit  
 
-    ```buildoutcfg
+    ```
        python3 messung.py TestMessung
     ```
     
@@ -81,19 +82,25 @@ den `xl2_device.py` script. z.B. mit:
 
 ## Daten bereinigen und zuordnen
 
-Zu diesem Zeitpunkt sind die passby daten und die XL2 daten in zwei ordner auf den PC
+Zu diesem Zeitpunkt sind die passby daten und die XL2 daten in zwei ordner auf den PC. 
+
+Als letzte Schritt nach einer Messung  müssen XL2 Daten und passby daten miteinander zugeordnet werden. 
+
+Das Erfolgt nach diesem Schritten:
 
 1. dauer von passby und XL2 aufnahmen prüfen 
 
-2. zeit syncronisations zwischen passby und xl2 prüfen
+2. zeit syncronisations zwischen passby und XL2 prüfen
 
 3. XL2 aufnahmen und passby zuordnen
 
 4. Neue ordnerstruktur herstellen 
 
+Schritt 1 und 2 sind notwendig um Daten von oft auftretende Fehler zu Bereinigen. 
+Diese Schritte werden mithilfe des `assign_tools.py` Script durchgeführt.
 
 ### Logs und passby daten analysieren 
 
-Den notebook `visualize_axle_sensor_logs.ipynb` ist einen hilfmittel/beispiel wie log daten 
+Den notebook `visualize_axle_sensor_logs.ipynb` ist einen hilfmittel/Beispiel wie log Daten 
 und passby daten analysiert werden können 
      

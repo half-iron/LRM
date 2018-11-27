@@ -87,7 +87,6 @@ def load_xl2logs_from_dir(dir_path):
             rec_list.append(rec_info)
     return rec_list
 
-
 ##########################
 ##########################
 
@@ -106,8 +105,8 @@ def test_XL2_duration(xl2_data_path,duration, delete=False):
     rec_list = load_xl2logs_from_dir(xl2_data_path)
     if len(rec_list) == 0:
         raise Exception("No records found in {}.".format(xl2_data_path))
-    else:
-        logger.info("Number of XL2 records found: {}.".format(len(rec_list)))
+
+    logger.info("Number of XL2 records found: {}.".format(len(rec_list)))
     outliers = max_duration(rec_list,duration)
     outliers= [rec_list[i]['path'] for i in outliers]
     logger.info("{} XL2 logs with duration > than {}.".format(len(outliers),duration))
@@ -119,8 +118,8 @@ def test_passby_duration(passby_path, duration, delete=False):
     bem, passby_list = load_passby_info_from_dir(passby_path,  "*passby.json")
     if len(passby_list) == 0:
         raise Exception("No valid passby found in {}.".format(passby_path))
-    else:
-        logger.info("Number of passby found: {}.".format(len(passby_list)))
+
+    logger.info("Number of passby found: {}.".format(len(passby_list)))
     outliers = max_duration(passby_list,duration)
     logger.info("{} passby with duration > than {}.".format(len(outliers),duration))
     outliers= [passby_list[i]['path'] for i in outliers]
@@ -132,20 +131,27 @@ def test_passby_time_corrrection(passby_path, max_correction, delete=False):
     bem, passby_list = load_passby_info_from_dir(passby_path, logger, "*passby.json")
     if len(passby_list) == 0:
         raise Exception("No valid passby found in {}.".format(passby_path))
-    else:
-        logger.info("Number of passby found: {}.".format(len(passby_list)))
-        out = []
-        approx_time_correction = [p['xl2_time_correction'].total_seconds() for p in passby_list]
-        print(pd.Series(approx_time_correction).describe())
-        avg = pd.Series(approx_time_correction).mean()
-        for tc, p in zip(approx_time_correction, passby_list):
-            if abs(tc - avg) > max_correction:
-                print("time correction: {},  passby {} ".format(tc, p['path']))
-                out.append(p['path'])
 
-        return passby_list[0]['xl2_time_correction'], out
+    logger.info("Number of passby found: {}.".format(len(passby_list)))
+    time_correction = []
+    out = []
+    for p in passby_list:
+        dt = p['xl2_time_correction'].total_seconds()
+        if abs(dt)>max_correction:
+            time_correction.append(dt)
+        else:
+            out.append(p['path'])
+            logger.warning("{} correction {}.".format(p['path'].as_posix(),dt))
+
+    df = pd.Series(time_correction)
+    logger.info(str(df.describe()))
+
+    if delete:
+        delete_files(out)
+    return df.mean()
 
     time_correction, outlier = approx_time_correction(passby_list_f, outlier_th=10)
+
 ##########################
 ##########################
 #assign

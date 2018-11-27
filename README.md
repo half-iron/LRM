@@ -1,10 +1,50 @@
+# LRM übersicht
 
+### Ordner
 
+- `axle_sensors` achsensoren info und firmware
+- `NTiXL2` entält die python implementierung der serielle schnittstelle zur XL2 messgerät. Diesem Modul  
+- `pyLRM` entält den python code notwendig für die scripts.
+
+### Scripts
+
+Die scripts dienen zur Bedienung der Messanlage. Die Scripts implementieren eine rehie von 
+funktionen. Den Befehl `python3 scriptname.py -h` gibt Hinweise über die funktionalität und
+ Anwendug der Scripts. 
+ 
+ 
+
+Ein übersicht der implementierten funktionalitäten sind: 
+- **xl2_device.py**: 
+    - XL2 cycle power (strom aus und wieder ein)
+    - XL2 test serial
+    - XL2 mass <-> serial mode wechseln
+    - XL2 mass mount und umount
+    
+- **messung.py** durchführt die Messung. Messdaten werden sowohl im XL2 wie im BBG generiert.
+
+- **assign_tools.py**. Nach einer Messung müssen die XL2 und BBG Messdaten miteinander zugeordnet werden.
+
+- **test_mail_logger.py** sendet einen testmail
+    
+- **test_axle_sensors.py** um axle sensor zu testen. ähnlich zur `messung.py` aber ohne XL2.
+
+   
+## Durchführung einer Messung
 ### Vorbereitungen
 
-### Messung 
+1. `pyLRM/config.py` file modifizieren falls nötig.
 
-1. Stelle sicher dass den XL2 korrekt funktioniert und im serial modus ist. Benutze dafür  `xl2_device.py`
+2. `pyLRM/passby.py` file modifizieren. Diesem File enthält die logik um die passby zu generieren. In zukunft diese änderung 
+sollten in `pyLRM/config.py` durchgeführt werden durch subclassen von `passby.Passby` und neuschreiben der methode `run`
+
+### Messen
+
+1. Stelle sicher dass den XL2 korrekt funktioniert und im serial modus ist. Benutze dafür 
+den `xl2_device.py` script. z.B. mit:
+    ```
+    python3 xl2_device.py -test_serial
+    ```
 2. Starte die Messung mit  
 
     ```buildoutcfg
@@ -39,17 +79,21 @@
         python3 xl2_device.py -umount -eject
     ```
 
-## Daten Bereinigen und zuordnen
+## Daten bereinigen und zuordnen
+
+Zu diesem Zeitpunkt sind die passby daten und die XL2 daten in zwei ordner auf den PC
+
+1. dauer von passby und XL2 aufnahmen prüfen 
+
+2. zeit syncronisations zwischen passby und xl2 prüfen
+
+3. XL2 aufnahmen und passby zuordnen
+
+4. Neue ordnerstruktur herstellen 
 
 
-1. dauer testen 
+### Logs und passby daten analysieren 
 
-2. 
-
-3. zuordnen
-
-4. neue ordnerstructur
-
-
-### Logs Anschauen
+Den notebook `visualize_axle_sensor_logs.ipynb` ist einen hilfmittel/beispiel wie log daten 
+und passby daten analysiert werden können 
      

@@ -5,6 +5,7 @@ test/
 .idea*
 *.log
 *.secret.yaml
+
 ###files###
 
 *.xoj

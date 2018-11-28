@@ -5,7 +5,7 @@ from pyLRM.axle_sensor import parse_msg, unstuff_frame_from_serial_data, init_ax
 from datetime import datetime
 import pyLRM.config as config
 from pyLRM.config import xbee_axle_sensors_name_from_addr
-from pyLRM.passby import TrainPassby
+from pyLRM.config import MyTrainPassby as TrainPassby
 from pyLRM.logging_handler import init_logger, ax_sensor_log_gen,init_mail_logger
 import argparse
 from queue import Queue
@@ -97,7 +97,7 @@ def main(logger,profile,stop_delay,passbypath, axsettings,stop_time):
                 if not REC:
                     REC=True
                     try:
-                        xl2.serial_message(INITIATE.START())
+                        xl2.serial_message(INITIATE.START()) #TODO: diesem befehl steckt hinten Viele Probleme
                     except Exception as e:
                         logger.error("Error start.{}.".format(str(e)))
                         raise e
@@ -108,7 +108,7 @@ def main(logger,profile,stop_delay,passbypath, axsettings,stop_time):
                 if REC:
                     REC=False
                     try:
-                        xl2.serial_message(INITIATE.STOP())
+                        xl2.serial_message(INITIATE.STOP()) #TODO: diesem befehl steckt hinten Viele Probleme
                     except Exception as e:
                         logger.error("Error  stop.{}.".format(str(e)))
                         raise e
@@ -121,7 +121,7 @@ def main(logger,profile,stop_delay,passbypath, axsettings,stop_time):
                     except Exception as e:
                         logger.error("Error xl2.get_datetime. Error{}.".format(str(e)))
                         try:
-                            xl2time=xl2.get_datetime()
+                            xl2time=xl2.get_datetime() #TODO: diesem befehl steckt Hinten Viele Probleme
                         except Exception as e:
                             logger.error("Error N.2 xl2.get_datetime. Error{}.".format(str(e)))
                             raise e
@@ -209,6 +209,7 @@ if __name__=="__main__":
     logger.info("==============")
     maillogger.info("Start {}.".format(args.name))
     i = 0
+    # TODO: diese implementierung ist zu verbessern!
     while i<10:
         try:
             r = main(logger,profile=config.PROFILE,stop_delay=args.stop_delay, passbypath=path,

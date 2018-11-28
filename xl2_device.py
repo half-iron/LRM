@@ -97,8 +97,7 @@ if __name__=="__main__":
     args = parser.parse_args()
 
     logger = init_logger("XL2",
-                         filepath=pathlib.Path(),
-                         mail=False)
+                         filepath=pathlib.Path())
     if args.list_devices:
         if XL2_device_exists(XL2_SERIAL_PATH,0):
             logger.info("==Found serial device {}.".format(XL2_SERIAL_PATH.as_posix()))

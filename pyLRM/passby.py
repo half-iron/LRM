@@ -36,36 +36,7 @@ class TrainPassby(object):
         return len(self.errors)>0
 
     def rec(self):
-        ax1_count, ax2_count=[self._ax_counter[n] for n in self.ax_names]
-        if self._stopped or self.is_error:
-            return False
-        elif self._start_time is None:
-            if ax1_count==self._start_after_ax:
-                if ax2_count==0:
-                    self._start_time=self._now()
-                    self._ax_trigger=self.ax_names[0]
-                    return True
-                else:
-                    self.add_error('error1')
-                    return False
-            elif ax2_count==self._start_after_ax:
-                if ax1_count==0:
-                    self._start_time=self._now()
-                    self._ax_trigger=self.ax_names[1]
-                    return True
-                else:
-                    self.add_error('error2')
-                    return False
-            else:
-                return False
-        elif (self._last_ax_timestamp+ self.stop_delay<=self._now()):
-            for n in self.ax_names:
-                if self._ax_counter[n]<self._ax_counter_low_err:
-                    self.add_error('{}_number_low_error'.format(n))
-            self._stopped=True
-            return False
-        else:
-            return True
+        pass
 
     @property
     def _name(self):

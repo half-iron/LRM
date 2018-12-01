@@ -1,6 +1,5 @@
 import datetime
 import json
-from pyLRM.config import xbee_axle_sensors_name_from_addr,xbee_axle_sensors
 
 class TrainPassby(object):
     DICT_KEYS=set(["stop_rec","start_rec","ax_data", "trigger",'sync_time'])

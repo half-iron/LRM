@@ -4,7 +4,12 @@ import yaml
 import pathlib
 from pyLRM.passby import TrainPassby
 
-secret = yaml.load(pathlib.Path().absolute().joinpath('accounts.secret.yaml').open("r+"))
+try:
+    secret = yaml.load(pathlib.Path().absolute().joinpath('accounts.secret.yaml').open("r+"))
+except:
+    secret = yaml.load(pathlib.Path().absolute().parent.joinpath('accounts.secret.yaml').open("r+"))
+
+
 
 XL2={'port':None,
      'serial_usb_id':(0x1a2b, 0x0004),

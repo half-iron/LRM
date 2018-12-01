@@ -6,8 +6,11 @@ from pathlib import Path
 import argparse
 import logging
 import sys,os
-from shutil import copyfile
+import shutil
 import pandas as pd
+from bokeh.models import ColumnDataSource,Plot, LinearAxis, Grid, DatetimeTickFormatter,Range1d,LabelSet
+from bokeh.plotting import figure, show, output_notebook
+import bokeh
 
 logging.basicConfig( stream=sys.stdout,format='%(funcName)-15s: %(message)s',level=logging.INFO)
 logger = logging.getLogger()
@@ -17,15 +20,6 @@ def delete_files(file_path_list):
     for f in file_path_list:
         logger.info("delete {}.".format(f.as_posix()))
         os.remove(f.as_posix())
-
-
-def copy_files(file_path_list, path_destination):
-    if path_destination.is_dir():
-        for f in file_path_list:
-            new= copyfile(f.as_posix(), path_destination.as_posix())
-            logger.info("File {} copied at {}.".format(f.as_posix(),new))
-    else:
-        raise Exception('destination_path {} is not a directory'.format(path_destination.as_posix()))
 
 def load_passby_info(path):
     p_info = {}
@@ -42,33 +36,37 @@ def load_passby_info(path):
         else:
             p_info['start_rec'] = sync_str_to_datetime(p['start_rec'])
             p_info['stop_rec'] = sync_str_to_datetime(p['stop_rec'])
+        xl2_filename = p.get("xl2_filename_root")
+        if xl2_filename is not None:
+            p_info['xl2_filename_root'] = xl2_filename
     return p_info
 
 
-def load_passby_info_from_dir(dir_path, name_match ="*passby.json"):
+def load_passby_info_from_dir(passby_path, name_match ="*passby.json"):
     passby_list = []
-    if "bemerkung.json" in [f.name for f in dir_path.iterdir()]:
-        with dir_path.joinpath("bemerkung.json").open('r+') as file:
-            bem_d = json.load(file)
-            skip = bem_d.get('skip', [])
-        logger.info("bemerkung.json file found")
-        logger.info("{}\n--------------".format(json.dumps(bem_d, indent=2)))
-    else:
-        bem_d=None
-        skip=[]
-    ##load or skip passby
-    if type(skip) == list:
-        for fp in dir_path.iterdir():
-            if (fp.name not in skip) and fp.match(name_match):
-                p_info = load_passby_info(fp)
-                if p_info is not None:
-                    passby_list.append(p_info)
-            #else:
-            #    logger.warning("Skip  {}.".format(fp.name))
-                    # return
-        return bem_d, passby_list
-    else:
-        raise TypeError("skip has to be a list.")
+    logger.info("Load passbys from {}.".format(passby_path))
+
+    #if "bemerkung.json" in [f.name for f in passby_path.iterdir()]:
+    #    with passby_path.joinpath("bemerkung.json").open('r+') as file:
+    #        bem_d = json.load(file)
+    #        skip = bem_d.get('skip', [])
+    #    logger.info("bemerkung.json file found")
+    #    logger.info("{}\n--------------".format(json.dumps(bem_d, indent=2)))
+    #else:
+    #    bem_d=None
+    #    skip=[]
+
+    for fp in passby_path.iterdir():
+        if fp.match(name_match):
+            p_info = load_passby_info(fp)
+            if p_info is not None:
+                passby_list.append(p_info)
+
+    if len(passby_list) == 0:
+        raise Exception("No valid passby found in {}.".format(passby_path))
+    logger.info("Number of passby found: {}.".format(len(passby_list)))
+    return passby_list
+
 
 def load_xl2logs_info(path):
     rec_info = {}
@@ -76,15 +74,21 @@ def load_xl2logs_info(path):
     rec_info['stop_rec'] = log_measurement['End']
     rec_info['start_rec'] = log_measurement['Start']
     rec_info['path'] = path
+    rec_info['xl2_filename_root'] = path.name.replace("_123_Log.txt", "")
     return  rec_info
 
 
-def load_xl2logs_from_dir(dir_path):
+def load_xl2logs_from_dir(xl2_data_path):
     rec_list=[]
-    for fp in dir_path.iterdir():
+    logger.info("Load xl2 logs from {}.".format(xl2_data_path))
+    for fp in xl2_data_path.iterdir():
         if fp.match("*123_Log.txt"):
             rec_info =load_xl2logs_info(fp)
             rec_list.append(rec_info)
+    if len(rec_list) == 0:
+        raise Exception("No records found in {}.".format(xl2_data_path))
+    else:
+        logger.info("Number of XL2 records found: {}.".format(len(rec_list)))
     return rec_list
 
 ##########################
@@ -101,12 +105,7 @@ def max_duration(rec_passby_list, max_duration):
     return index
 
 def test_XL2_duration(xl2_data_path,duration, delete=False):
-    logger.info("Load xl2 logs from {}.".format(xl2_data_path))
     rec_list = load_xl2logs_from_dir(xl2_data_path)
-    if len(rec_list) == 0:
-        raise Exception("No records found in {}.".format(xl2_data_path))
-
-    logger.info("Number of XL2 records found: {}.".format(len(rec_list)))
     outliers = max_duration(rec_list,duration)
     outliers= [rec_list[i]['path'] for i in outliers]
     logger.info("{} XL2 logs with duration > than {}.".format(len(outliers),duration))
@@ -114,43 +113,45 @@ def test_XL2_duration(xl2_data_path,duration, delete=False):
         delete_files(outliers)
 
 def test_passby_duration(passby_path, duration, delete=False):
-    logger.info("Load passbys from {}.".format(passby_path))
-    bem, passby_list = load_passby_info_from_dir(passby_path,  "*passby.json")
-    if len(passby_list) == 0:
-        raise Exception("No valid passby found in {}.".format(passby_path))
-
-    logger.info("Number of passby found: {}.".format(len(passby_list)))
+    passby_list = load_passby_info_from_dir(passby_path,  "*passby.json")
     outliers = max_duration(passby_list,duration)
     logger.info("{} passby with duration > than {}.".format(len(outliers),duration))
     outliers= [passby_list[i]['path'] for i in outliers]
     if delete:
         delete_files(outliers)
 
-def test_passby_time_corrrection(passby_path, max_correction, delete=False):
-    logger.info("Load passbys from {}.".format(passby_path))
-    bem, passby_list = load_passby_info_from_dir(passby_path, logger, "*passby.json")
-    if len(passby_list) == 0:
-        raise Exception("No valid passby found in {}.".format(passby_path))
-
-    logger.info("Number of passby found: {}.".format(len(passby_list)))
+def test_passby_time_corrrection(passby_path, max_correction, max_deviation, delete=False):
+    passby_list = load_passby_info_from_dir(passby_path,  "*passby.json")
     time_correction = []
+    remaining_pb =[]
     out = []
+    logger.info("Start max correction test:")
     for p in passby_list:
         dt = p['xl2_time_correction'].total_seconds()
-        if abs(dt)>max_correction:
+        if abs(dt)< max_correction:
             time_correction.append(dt)
+            remaining_pb.append(p)
         else:
             out.append(p['path'])
-            logger.warning("{} correction {}.".format(p['path'].as_posix(),dt))
+            logger.warning("{} correction {} bigger than {}.".format(p['path'].as_posix(),dt,max_correction))
 
     df = pd.Series(time_correction)
-    logger.info(str(df.describe()))
+    mean = df.mean()
+    time_correction=[]
+    logger.info("Start max deviation test:")
+    for p in remaining_pb:
+        err = p['xl2_time_correction'].total_seconds()-mean
+        if abs(err)> max_deviation:
+            out.append(p['path'])
+            logger.warning("{} correction error {} bigger than {}.".format(p['path'].as_posix(),int(err),max_deviation))
+        else:
+            time_correction.append(p['xl2_time_correction'].total_seconds())
+    df = pd.Series(time_correction)
+    logger.info("Stats: \n{}".format(str(df.describe())))
 
     if delete:
         delete_files(out)
     return df.mean()
-
-    time_correction, outlier = approx_time_correction(passby_list_f, outlier_th=10)
 
 ##########################
 ##########################
@@ -161,73 +162,159 @@ def has_time_overlap(A_start, A_end, B_start, B_end):
     return latest_start <= earliest_end
 
 def assign_xl2rec_to_passby(start_rec, stop_rec, xl2_time_correction, xl2_records, **kwargs):
-    assigned_xl2_rec=[]
+    """ return index of xl2 records"""
+    assigned_xl2_rec_index=[]
     dt = datetime.timedelta(seconds=2)
     start_rec -= dt
     stop_rec -= dt
-    for rec_info in xl2_records:
+    for i, rec_info in enumerate(xl2_records):
         xl2_start=rec_info['start_rec']+xl2_time_correction
         xl2_stop=rec_info['stop_rec']+xl2_time_correction
         if has_time_overlap(start_rec, stop_rec, xl2_start, xl2_stop):
-            assigned_xl2_rec.append(rec_info)
-    return assigned_xl2_rec
+            assigned_xl2_rec_index.append(i)
+    return assigned_xl2_rec_index
 
 def update_passby_with_xl2_path(path, xl2_filename_root):
     with path.open('r+') as file:
         passby = json.load(file)
     passby["xl2_filename_root"] = xl2_filename_root
     with path.open('w+') as file:
-        json.dump(passby,file,sort_keys=True, indent=2,default=str)
+        json.dump(passby,file, sort_keys=True, indent=2, default=str)
 
-def create_passby_dir_and_move_xl2_files(passby,xl2_p):
-    xl2_name_root= passby['']
-    passby_path = passby['path'].parent
-    dir_name = passby['path'].name.replace(".json","")
-    xl2_paths = []
-
-def assign(passby_path,xl2_data_path,logger):
-    logger.info("Load passbys from {}.".format(passby_path))
-    bem, passby_list = load_passby_info_from_dir(passby_path, logger, "*passby.json")
-    if len(passby_list) == 0:
-        raise Exception("No valid passby found in {}.".format(passby_path))
-    else:
-        logger.info("Number of passby found: {}.".format(len(passby_list)))
-    ##
-    logger.info("Load xl2 logs from {}.".format(xl2_data_path))
-    rec_list = load_xl2logs_from_dir(xl2_data_path)
-    if len(rec_list) == 0:
-        raise Exception("No records found in {}.".format(xl2_data_path))
-    else:
-        logger.info("Number of XL2 records found: {}.".format(len(rec_list)))
-
-    # assignement
-    logger.info("Start assigning XL2rec to passby.")
-    assigned_passby = {}
-    assigned, not_assigned, not_correctly_assigned = 0, 0, 0
+def assign_func(passby_list,rec_list):
+    assigned = []
+    rec_list=rec_list.copy()
+    remaining_passby=[]
+    assigned_rec = []
+    not_correctly_assigned = 0
     for p in passby_list:
-        assigned_recs = assign_xl2rec_to_passby(**p, xl2_records=rec_list)
-        n_assignements = len(assigned_recs)
+        assigned_recs_index = assign_xl2rec_to_passby(**p, xl2_records=rec_list)
+        n_assignements = len(assigned_recs_index)
         if n_assignements == 0:
-            not_assigned += 1
+            remaining_passby.append(p)
             logger.warning("Not assigned: {}, {}.".format(p['path'].parent.parent.name, p['path'].name))
         elif n_assignements == 1:
-            xl2_filename_root = p["xl2_file_path"].name.replace("_123_Log.txt","")
-            assigned_passby[p["path"].name] = {"xl2_filename_root": xl2_filename_root,
-                                               "xl2_time_correction": p['xl2_time_correction']}
-            update_passby_with_xl2_path(p["path"], xl2_filename_root)
-            assigned += 1
+            rec = rec_list.pop(assigned_recs_index[0])
+            assigned.append((p,rec))
+            assigned_rec.append(rec)
         elif n_assignements > 1:
             not_correctly_assigned += 1
 
-    logger.info("Correctly assigned {}".format(assigned))
-    logger.warning("Not assigned {}".format(not_assigned))
+    logger.info("Correctly assigned {}".format(len(assigned)))
+    logger.info("Used recs {}".format(len(assigned_rec)))
+    logger.warning("Not assigned {}".format(len(remaining_passby)))
     logger.warning("Not correctly assigned {}".format(not_correctly_assigned))
-    return assigned_passby
+    return assigned,remaining_passby, rec_list
+
+
+def plot_zuordnung(assigned, remaining_passby, remaining_rec, labels=True, **kwargs):
+    y_range = ["records", "passby"]  # ,"not assigned passby"]
+    plt = figure(
+        title="Zuordnung zwische passby und XL2 records.",
+        y_range=y_range,
+        x_axis_type="datetime",
+        x_axis_label='XL2 uncorrected time',
+        tools=['xwheel_zoom', 'xpan'], active_scroll='xwheel_zoom', active_drag='xpan',
+        **kwargs)
+    plt.xaxis.formatter = DatetimeTickFormatter(days=["%m/%d"], months=["%m/%d"], hours=["%m/%d %H:%M"],
+                                                hourmin=["%m/%d %H:%M"], minutes=["%m/%d %H:%M"],
+                                                seconds=["%m/%d %H:%M:%S"], minsec=["%m/%d %H:%M:%S"])
+    # data
+    f_pb = lambda pb: {'x0': pb['start_rec'] - pb['xl2_time_correction'],
+                       'x1': pb['stop_rec'] - pb['xl2_time_correction'], 'y0': "passby", 'y1': "passby",
+                       'name': pb['path'].name.replace('_passby.json', '')}
+    f_rec = lambda r: {'x0': r['start_rec'], 'x1': r['stop_rec'], 'y0': "records", 'y1': "records",
+                       'name': r['xl2_filename_root']}
+
+    plt.segment(x0="x0", y0="y0", x1="x1", y1="y1", line_width=20, color="red",
+                source=ColumnDataSource(pd.DataFrame([f_pb(pb) for pb in remaining_passby]))
+                )
+    plt.segment(x0="x0", y0="y0", x1="x1", y1="y1", line_width=20, color="blue",
+                source=ColumnDataSource(pd.DataFrame([f_pb(pb) for pb, r in assigned]))
+                )
+    # passby
+    plt.segment(x0="x0", y0="y0", x1="x1", y1="y1", line_width=20, color="red",
+                source=ColumnDataSource(pd.DataFrame([f_rec(r) for r in remaining_rec]))
+                )
+    plt.segment(x0="x0", y0="y0", x1="x1", y1="y1", line_width=20, color="blue",
+                source=ColumnDataSource(pd.DataFrame([f_rec(r) for pb, r in assigned]))
+                )
+
+    if labels:
+        plt.add_layout(LabelSet(x='x0', y='y0', text='name', level='glyph', x_offset=5, y_offset=10,
+                                source=ColumnDataSource(pd.DataFrame([f_pb(pb) for pb in remaining_passby]))
+                                ))
+        plt.add_layout(LabelSet(x='x0', y='y0', text='name', level='glyph', x_offset=5, y_offset=10,
+                                source=ColumnDataSource(pd.DataFrame([f_rec(r) for r in remaining_rec]))
+                                ))
+    return plt
+
+
+def assign(passby_path,xl2_data_path,update_passby=False,plot=True):
+    passby_list = load_passby_info_from_dir(passby_path, "*passby.json")
+    rec_list = load_xl2logs_from_dir(xl2_data_path)
+    # assignement
+    logger.info("Start assigning XL2rec to passby.")
+    assigned, remaining_passby, remaining_rec= assign_func(passby_list,rec_list)
+
+    if update_passby:
+        logger.info("update passby with xl2_filename_root.")
+        for p,r in assigned:
+            update_passby_with_xl2_path(p['path'], r['xl2_filename_root'])
+    if plot:
+        logger.info("generate plot.")
+        p = plot_zuordnung(assigned, remaining_passby, remaining_rec, width=1500, height=200)
+        bokeh.plotting.output_file(filename=passby_path.absolute().joinpath('plot.html').as_posix(),
+                                   title='zuordnung_plot',mode='cdn')
+        bokeh.io.save(p)
+
+
+
 ######################
 ######################
 
-def copy():
-    pass
+def copy_files(file_path_list, path_destination):
+    if path_destination.is_dir():
+        for f in file_path_list:
+            new = shutil.copy(f.as_posix(), path_destination.as_posix())
+            logger.info("File {} copied at {}.".format(f.as_posix(),new))
+    else:
+        raise Exception('destination_path {} is not a directory'.format(path_destination.as_posix()))
+
+def passby_dir_name_and_file_to_move(passby, remaining_xl2):
+    xl2_name_root= passby['xl2_filename_root']
+    files_to_copy = [passby['path'].absolute()]
+    dir_name = passby['path'].name.replace(".json","")
+    index=[]
+    for i,p in enumerate(remaining_xl2.copy()):
+        if p.match("*{}*".format(xl2_name_root)):
+            files_to_copy.append(p)
+            remaining_xl2.remove(p)
+    return dir_name, files_to_copy
+
+def copy(passby_path,xl2_data_path,new_path):
+    passby_list = load_passby_info_from_dir(passby_path, "*passby.json")
+    flt_pb=[]
+    for p in passby_list:
+        try:
+            p['xl2_filename_root']
+        except:
+            logger.warning("{} not assigned".format(p['path']))
+        else:
+            flt_pb.append(p)
+
+    new_path.mkdir(exist_ok=True)
+    logger.info("{} passby dir to create at {}.".format(len(flt_pb),new_path.as_posix()))
+    xl2_data_paths=[p for p in xl2_data_path.iterdir()]
+    for p in flt_pb:
+        dir_name,files = passby_dir_name_and_file_to_move(p,xl2_data_paths)
+        d = new_path.joinpath(dir_name)
+        logger.info("create dir {}.".format(str(d)))
+        d.mkdir(exist_ok=True)
+        copy_files(files,d)
+
+
+
 
 
 if __name__=="__main__":
@@ -248,7 +335,8 @@ if __name__=="__main__":
 
     parser_passby_correction = subparsers.add_parser('test_passby_correction', help='')
     parser_passby_correction.add_argument('passby_path', type=lambda p: Path(p).absolute(), help='Pfad von passby Data.')
-    parser_passby_correction.add_argument('max_correction', type=int, help='Correction in Sekunden.')
+    parser_passby_correction.add_argument('max_correction', type=int, help='betrag maximale akzeptierte correction in Sekunden.')
+    parser_passby_correction.add_argument('max_deviation', type=int, help='betrag maximale akzeptierte Abweichung.')
     parser_passby_correction.add_argument('-delete', action='store_true', help='Lösche passby files mit grösse correction')
     parser_passby_correction.set_defaults(func=test_passby_time_corrrection)
 
@@ -261,7 +349,7 @@ if __name__=="__main__":
     parser_copy = subparsers.add_parser('copy', help='')
     parser_copy.add_argument('passby_path', type=lambda p: Path(p).absolute(), help='Pfad von passby Data.')
     parser_copy.add_argument('xl2_data_path', type=lambda p: Path(p).absolute(), help='Pfad von XL2 Data.')
-    parser_copy.add_argument('-move', action='store_true', help='')
+    parser_copy.add_argument('new_path', type=lambda p: Path(p).absolute(), help='Pfad wo das neue filesystem herstellt wird.')
     parser_copy.set_defaults(func=copy)
 
 

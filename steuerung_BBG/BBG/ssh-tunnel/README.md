@@ -14,7 +14,7 @@ ssh debian@localhost -p 2211
 
 # SSH tunnel einrichten
 
-Folgende Schritte werden auf den BBG durchgeführt um den Tünnel herzustellen.
+Folgende Schritte werden auf den BBG durchgeführt um den   Tunnel herzustellen.
 
 ## ssh tunnel von BBG zu remotes server testen
 
